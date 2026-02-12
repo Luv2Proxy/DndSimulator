@@ -6,13 +6,13 @@
   const TILE = 10;
 
   const BIOMES = {
-    water: { color: '#355f7d', move: 99, stealth: 0.2 },
-    plains: { color: '#8cad67', move: 1, stealth: 1 },
-    forest: { color: '#3b6f4d', move: 1.2, stealth: 1.4 },
-    hills: { color: '#7f8c63', move: 1.5, stealth: 1.2 },
-    ruins: { color: '#6f6f76', move: 1.1, stealth: 1.1 },
-    volcanic: { color: '#6c4c3d', move: 1.8, stealth: 0.8 },
-    lava: { color: '#ce5b2b', move: 99, stealth: 0.1 }
+    water: { color: '#355f7d', move: 99, stealth: 0.2, forage: 0.2 },
+    plains: { color: '#8cad67', move: 1, stealth: 1, forage: 1.1 },
+    forest: { color: '#3b6f4d', move: 1.2, stealth: 1.4, forage: 1.6 },
+    hills: { color: '#7f8c63', move: 1.5, stealth: 1.2, forage: 0.9 },
+    ruins: { color: '#6f6f76', move: 1.1, stealth: 1.1, forage: 0.7 },
+    volcanic: { color: '#6c4c3d', move: 1.8, stealth: 0.8, forage: 0.3 },
+    lava: { color: '#ce5b2b', move: 99, stealth: 0.1, forage: 0 }
   };
 
   const ITEMS = [
@@ -22,15 +22,13 @@
     { name: 'Healing Herb', type: 'med', heal: 14 },
     { name: 'Baked Apple', type: 'food', hunger: 18 },
     { name: 'Mushroom Skewer', type: 'food', hunger: 24 },
+    { name: 'Prime Meat', type: 'food', hunger: 30 },
     { name: 'Waterskin', type: 'water', thirst: 22 },
     { name: 'Smoke Bomb', type: 'utility', evade: 0.2 },
     { name: 'Ancient Arrow', type: 'weapon', power: 18 }
   ];
 
-  const names = [
-    'Linka', 'Zera', 'Mido', 'Revali', 'Riju', 'Sidon', 'Urbosa', 'Darun',
-    'Impa', 'Paya', 'Kass', 'Yiga', 'Teba', 'Mipha', 'Hestu', 'Purah'
-  ];
+  const names = ['Linka', 'Zera', 'Mido', 'Revali', 'Riju', 'Sidon', 'Urbosa', 'Darun', 'Impa', 'Paya', 'Kass', 'Yiga', 'Teba', 'Mipha', 'Hestu', 'Purah'];
 
   class RNG {
     constructor(seed = Date.now() % 2147483647) { this.s = seed || 1; }
@@ -47,86 +45,74 @@
       this.teamId = teamId;
       this.x = x;
       this.y = y;
-      this.hp = rng.int(80, 110);
+      this.hp = rng.int(85, 110);
       this.maxHp = this.hp;
-      this.combat = rng.int(6, 16);
-      this.stealth = rng.int(6, 16);
+      this.speed = rng.int(5, 10);
+      this.smarts = rng.int(5, 10);
+      this.strength = rng.int(5, 10);
+      this.stealth = rng.int(5, 10);
+      this.combat = Math.round((this.strength * 1.3 + this.speed * 0.7 + this.stealth * 0.4) * 1.5);
       this.morale = rng.int(40, 90);
       this.hunger = 100;
       this.thirst = 100;
       this.alive = true;
-      this.inventory = [structuredClone(rng.pick(ITEMS)), structuredClone(rng.pick(ITEMS))];
+      this.inventory = [structuredClone(rng.pick(ITEMS)), structuredClone(rng.pick(ITEMS)), structuredClone(rng.pick(ITEMS))];
       this.alliance = null;
       this.revengeTargets = new Set();
       this.kills = 0;
+      this.lastAction = 'scouting';
     }
     get weaponPower() {
       return this.inventory.filter(i => i.type === 'weapon').reduce((a, i) => a + (i.power || 0), 0);
+    }
+    get threat() {
+      return this.combat + this.weaponPower * 0.5 + this.hp * 0.15;
     }
   }
 
   const state = {
     rng: new RNG(20260212),
-    map: [],
-    tributes: [],
-    teams: new Map(),
-    alliances: new Map(),
-    time: 0,
-    day: 1,
-    running: false,
-    speed: 3,
-    selectedId: null,
+    map: [], tributes: [], teams: new Map(), alliances: new Map(),
+    time: 0, day: 1, running: false, speed: 3, selectedId: null,
     volcano: { x: 78, y: 12, heat: 0, erupting: false, turns: 0 }
   };
 
   const els = {
-    main: document.getElementById('mainMap'),
-    mini: document.getElementById('miniMap'),
-    eventLog: document.getElementById('eventLog'),
-    deathLog: document.getElementById('deathLog'),
-    status: document.getElementById('status'),
-    tributesList: document.getElementById('tributesList'),
-    alliancesView: document.getElementById('alliancesView'),
-    inv: document.getElementById('inventoryView'),
-    startBtn: document.getElementById('startBtn'),
-    pauseBtn: document.getElementById('pauseBtn'),
-    stepBtn: document.getElementById('stepBtn'),
-    resetBtn: document.getElementById('resetBtn'),
-    speedInput: document.getElementById('speedInput')
+    main: document.getElementById('mainMap'), mini: document.getElementById('miniMap'),
+    eventLog: document.getElementById('eventLog'), deathLog: document.getElementById('deathLog'), status: document.getElementById('status'),
+    tributesList: document.getElementById('tributesList'), alliancesView: document.getElementById('alliancesView'), inv: document.getElementById('inventoryView'),
+    startBtn: document.getElementById('startBtn'), pauseBtn: document.getElementById('pauseBtn'), stepBtn: document.getElementById('stepBtn'),
+    resetBtn: document.getElementById('resetBtn'), speedInput: document.getElementById('speedInput')
   };
-
   const ctx = els.main.getContext('2d');
   const miniCtx = els.mini.getContext('2d');
+
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  const aliveTributes = () => state.tributes.filter(t => t.alive);
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
   function log(msg, type = 'event') {
     const li = document.createElement('li');
     li.textContent = `[D${state.day} T${state.time}] ${msg}`;
-    if (type === 'death') els.deathLog.prepend(li);
-    else els.eventLog.prepend(li);
+    (type === 'death' ? els.deathLog : els.eventLog).prepend(li);
   }
 
   function biomeAt(x, y) {
-    x = Math.max(0, Math.min(GRID_W - 1, x));
-    y = Math.max(0, Math.min(GRID_H - 1, y));
-    return state.map[y][x];
+    return state.map[clamp(y, 0, GRID_H - 1)][clamp(x, 0, GRID_W - 1)];
   }
 
   function generateMap() {
-    state.map = Array.from({ length: GRID_H }, (_, y) =>
-      Array.from({ length: GRID_W }, (_, x) => {
-        const dx = x - state.volcano.x;
-        const dy = y - state.volcano.y;
-        const d = Math.hypot(dx, dy);
-        const n = Math.sin(x * 0.23) + Math.cos(y * 0.17) + Math.sin((x + y) * 0.07);
-        if (x < 8 && y > 40) return 'water';
-        if (d < 5) return 'volcanic';
-        if (d < 3) return 'lava';
-        if (n > 1.1) return 'forest';
-        if (n > 0.3) return 'plains';
-        if (n > -0.5) return 'hills';
-        return 'ruins';
-      })
-    );
+    state.map = Array.from({ length: GRID_H }, (_, y) => Array.from({ length: GRID_W }, (_, x) => {
+      const d = Math.hypot(x - state.volcano.x, y - state.volcano.y);
+      const n = Math.sin(x * 0.23) + Math.cos(y * 0.17) + Math.sin((x + y) * 0.07);
+      if (x < 8 && y > 40) return 'water';
+      if (d < 3) return 'lava';
+      if (d < 6) return 'volcanic';
+      if (n > 1.1) return 'forest';
+      if (n > 0.3) return 'plains';
+      if (n > -0.5) return 'hills';
+      return 'ruins';
+    }));
   }
 
   function createCast() {
@@ -134,17 +120,12 @@
     state.teams.clear();
     state.alliances.clear();
 
-    const teamNames = ['Gerudo', 'Rito', 'Zora', 'Goron'];
-    teamNames.forEach((n, i) => state.teams.set(i, { id: i, name: n, members: [] }));
+    ['Gerudo', 'Rito', 'Zora', 'Goron'].forEach((n, i) => state.teams.set(i, { id: i, name: n, members: [] }));
 
     names.forEach((n, i) => {
       let x, y;
-      do {
-        x = state.rng.int(2, GRID_W - 3);
-        y = state.rng.int(2, GRID_H - 3);
-      } while (biomeAt(x, y) === 'water' || biomeAt(x, y) === 'lava');
-
-      const teamId = i % teamNames.length;
+      do { x = state.rng.int(2, GRID_W - 3); y = state.rng.int(2, GRID_H - 3); } while (['water', 'lava'].includes(biomeAt(x, y)));
+      const teamId = i % 4;
       const t = new Tribute(i, n, teamId, x, y, state.rng);
       state.tributes.push(t);
       state.teams.get(teamId).members.push(t.id);
@@ -152,126 +133,181 @@
 
     state.alliances.set('A1', { id: 'A1', members: [0, 5, 8], trust: 70, objective: 'hunt' });
     state.alliances.set('A2', { id: 'A2', members: [2, 7, 11], trust: 65, objective: 'gather' });
-    for (const a of state.alliances.values()) for (const id of a.members) {
-      const tr = state.tributes[id];
-      if (tr) tr.alliance = a.id;
+    for (const a of state.alliances.values()) {
+      for (const id of a.members) if (state.tributes[id]) state.tributes[id].alliance = a.id;
     }
-    log('Arena initialized. The hunt begins soon.');
+    log('Arena initialized. Tributes assess threats, food, and routes.');
   }
 
-  function aliveTributes() { return state.tributes.filter(t => t.alive); }
+  function nearestEnemy(t) {
+    return aliveTributes()
+      .filter(o => o.id !== t.id && o.teamId !== t.teamId && o.alliance !== t.alliance)
+      .sort((a, b) => dist(t, a) - dist(t, b))[0] || null;
+  }
+
+  function chooseStrategicTarget(t) {
+    const revenge = [...t.revengeTargets].map(id => state.tributes[id]).find(v => v?.alive);
+    if (revenge) return { x: revenge.x, y: revenge.y, mode: 'revenge' };
+
+    const lowNeeds = t.hunger < 55 || t.thirst < 55;
+    if (lowNeeds) {
+      const samples = Array.from({ length: 8 }, () => ({ x: state.rng.int(2, GRID_W - 3), y: state.rng.int(2, GRID_H - 3) }));
+      samples.sort((a, b) => (BIOMES[biomeAt(b.x, b.y)].forage - BIOMES[biomeAt(a.x, a.y)].forage));
+      return { ...samples[0], mode: 'forage' };
+    }
+
+    const enemy = nearestEnemy(t);
+    if (enemy && t.threat > enemy.threat * 1.08 && t.hp > 35) return { x: enemy.x, y: enemy.y, mode: 'hunt' };
+
+    if (t.alliance) {
+      const members = state.alliances.get(t.alliance)?.members.map(id => state.tributes[id]).filter(x => x?.alive && x.id !== t.id) || [];
+      if (members.length) {
+        const mate = state.rng.pick(members);
+        return { x: mate.x, y: mate.y, mode: 'group' };
+      }
+    }
+
+    return { x: state.rng.int(3, GRID_W - 4), y: state.rng.int(3, GRID_H - 4), mode: 'scout' };
+  }
 
   function moveTribute(t) {
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1],[0,0]];
-    const revenge = [...t.revengeTargets].map(id => state.tributes[id]).filter(x => x?.alive)[0];
-    let target = null;
-    if (revenge) target = { x: revenge.x, y: revenge.y };
-    else if (t.alliance && state.rng.chance(0.35)) {
-      const allies = state.alliances.get(t.alliance).members.map(id => state.tributes[id]).filter(x => x?.alive && x.id !== t.id);
-      if (allies.length) target = state.rng.pick(allies);
-    }
+    const target = chooseStrategicTarget(t);
+    const stepBudget = t.speed >= 9 ? 2 : 1;
+    t.lastAction = target.mode;
 
-    let best = { x: t.x, y: t.y, score: -1e9 };
-    for (const [dx, dy] of dirs) {
-      const nx = Math.max(0, Math.min(GRID_W - 1, t.x + dx));
-      const ny = Math.max(0, Math.min(GRID_H - 1, t.y + dy));
-      const b = biomeAt(nx, ny);
-      if (b === 'water' || b === 'lava') continue;
-      let score = state.rng.next() * 2 - BIOMES[b].move;
-      if (target) score += (20 - Math.hypot(target.x - nx, target.y - ny)) * 0.2;
-      if (b === 'forest') score += t.stealth * 0.03;
-      if (b === 'volcanic') score -= 0.6;
-      if (score > best.score) best = { x: nx, y: ny, score };
+    for (let step = 0; step < stepBudget; step++) {
+      let best = { x: t.x, y: t.y, score: -1e9 };
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = clamp(t.x + dx, 0, GRID_W - 1);
+          const ny = clamp(t.y + dy, 0, GRID_H - 1);
+          const b = biomeAt(nx, ny);
+          if (b === 'water' || b === 'lava') continue;
+
+          const needsForage = t.hunger < 50 || t.thirst < 50;
+          const enemy = nearestEnemy(t);
+          const enemyDist = enemy ? Math.hypot(enemy.x - nx, enemy.y - ny) : 9;
+          const targetDist = Math.hypot(target.x - nx, target.y - ny);
+          const volcanicRisk = Math.max(0, 12 - Math.hypot(nx - state.volcano.x, ny - state.volcano.y));
+
+          let score = 0;
+          score += t.smarts * 0.4;
+          score += (20 - targetDist) * 0.7;
+          score += BIOMES[b].stealth * t.stealth * 0.18;
+          score += needsForage ? BIOMES[b].forage * 8 : 0;
+          score -= BIOMES[b].move * (13 - t.speed) * 0.23;
+          score -= state.volcano.erupting ? volcanicRisk * (1.8 + t.smarts * 0.03) : volcanicRisk * 0.15;
+          if (enemy) {
+            const prefersFight = t.threat > enemy.threat;
+            score += prefersFight ? (9 - enemyDist) * 0.45 : enemyDist * 0.35;
+          }
+          if (score > best.score) best = { x: nx, y: ny, score };
+        }
+      }
+      t.x = best.x;
+      t.y = best.y;
     }
-    t.x = best.x;
-    t.y = best.y;
   }
 
-  function consumeResources(t) {
+  function consumeAndEat(t) {
     t.hunger -= state.rng.int(2, 4);
     t.thirst -= state.rng.int(3, 6);
-    if (t.hunger < 40 || t.thirst < 40) t.morale -= 2;
-    if (t.hunger < 10 || t.thirst < 10) t.hp -= state.rng.int(2, 5);
 
-    if (state.rng.chance(0.16)) {
-      const food = t.inventory.find(i => i.type === 'food');
-      const water = t.inventory.find(i => i.type === 'water');
-      if (food && t.hunger < 70) {
-        t.hunger = Math.min(100, t.hunger + food.hunger);
+    const food = t.inventory.find(i => i.type === 'food');
+    const water = t.inventory.find(i => i.type === 'water');
+
+    if ((t.hunger < 80 && food) || t.hunger < 45) {
+      if (food) {
+        t.hunger = clamp(t.hunger + food.hunger + Math.floor(t.smarts / 2), 0, 100);
         t.inventory.splice(t.inventory.indexOf(food), 1);
+        t.lastAction = 'eating';
         log(`${t.name} eats ${food.name}.`);
       }
-      if (water && t.thirst < 70) {
-        t.thirst = Math.min(100, t.thirst + water.thirst);
-        t.inventory.splice(t.inventory.indexOf(water), 1);
-        log(`${t.name} drinks from a ${water.name}.`);
-      }
     }
+
+    if (t.thirst < 75 && water) {
+      t.thirst = clamp(t.thirst + water.thirst, 0, 100);
+      t.inventory.splice(t.inventory.indexOf(water), 1);
+      t.lastAction = 'drinking';
+      log(`${t.name} drinks from ${water.name}.`);
+    }
+
+    const biome = biomeAt(t.x, t.y);
+    const forageChance = 0.08 + BIOMES[biome].forage * 0.12 + t.smarts * 0.008;
+    if (state.rng.chance(forageChance)) {
+      const found = state.rng.pick(ITEMS.filter(i => ['food', 'water', 'med'].includes(i.type)));
+      t.inventory.push(structuredClone(found));
+      if (found.type === 'food') log(`${t.name} forages ${found.name} and packs it for later.`);
+      t.lastAction = 'foraging';
+    }
+
+    if (t.hunger < 35 || t.thirst < 35) t.morale -= 2;
+    if (t.hunger < 10 || t.thirst < 10) t.hp -= state.rng.int(3, 6);
   }
 
   function randomEvent(t) {
     if (!state.rng.chance(0.1)) return;
     const roll = state.rng.next();
-    if (roll < 0.2) {
+    if (roll < 0.18) {
       const item = structuredClone(state.rng.pick(ITEMS));
       t.inventory.push(item);
       log(`${t.name} scavenged ${item.name} in the wilds.`);
-    } else if (roll < 0.38) {
+    } else if (roll < 0.34) {
       t.hp -= state.rng.int(3, 9);
       log(`${t.name} is hurt by a hidden trap in the ruins.`);
-    } else if (roll < 0.55) {
+    } else if (roll < 0.5) {
       t.morale += 8;
       log(`${t.name} found an ancient shrine and regained spirit.`);
-    } else if (roll < 0.73) {
+    } else if (roll < 0.64) {
       t.morale -= 12;
       log(`${t.name} is haunted by distant screams.`);
-    } else {
+    } else if (roll < 0.82) {
       const med = t.inventory.find(i => i.type === 'med');
       if (med && t.hp < t.maxHp) {
-        t.hp = Math.min(t.maxHp, t.hp + med.heal);
+        t.hp = Math.min(t.maxHp, t.hp + med.heal + Math.floor(t.smarts / 3));
         t.inventory.splice(t.inventory.indexOf(med), 1);
-        log(`${t.name} used ${med.name} to recover.`);
+        log(`${t.name} uses ${med.name} to recover.`);
       }
     }
   }
 
   function relationshipEvent(a, b) {
-    if (a.teamId === b.teamId && state.rng.chance(0.4)) {
-      const shareItem = a.inventory.pop();
-      if (shareItem) {
-        b.inventory.push(shareItem);
-        log(`${a.name} shares ${shareItem.name} with teammate ${b.name}.`);
+    if (a.teamId === b.teamId && state.rng.chance(0.45)) {
+      const share = a.inventory.find(i => i.type === 'food' || i.type === 'water') || a.inventory[0];
+      if (share) {
+        a.inventory.splice(a.inventory.indexOf(share), 1);
+        b.inventory.push(share);
+        log(`${a.name} shares ${share.name} with teammate ${b.name}.`);
       }
       return true;
     }
 
-    if (a.alliance && b.alliance && a.alliance === b.alliance && state.rng.chance(0.5)) {
+    if (a.alliance && b.alliance && a.alliance === b.alliance && state.rng.chance(0.52)) {
       const al = state.alliances.get(a.alliance);
-      if (al) al.trust = Math.min(100, al.trust + 1);
-      log(`${a.name} and ${b.name} coordinate a patrol for alliance ${a.alliance}.`);
+      if (al) al.trust = Math.min(100, al.trust + 1 + Math.floor((a.smarts + b.smarts) / 10));
+      log(`${a.name} and ${b.name} coordinate strategy in alliance ${a.alliance}.`);
       return true;
     }
 
-    if (!a.alliance && !b.alliance && state.rng.chance(0.12)) {
+    if (!a.alliance && !b.alliance && (a.smarts + b.smarts) >= 14 && state.rng.chance(0.14)) {
       const id = `A${state.alliances.size + 1}`;
       state.alliances.set(id, { id, members: [a.id, b.id], trust: 58, objective: 'survive' });
       a.alliance = id;
       b.alliance = id;
-      log(`${a.name} and ${b.name} forge a fragile alliance ${id}.`);
+      log(`${a.name} and ${b.name} create calculated alliance ${id}.`);
       return true;
     }
 
     if (a.alliance && b.alliance && a.alliance === b.alliance) {
       const al = state.alliances.get(a.alliance);
-      if (al && state.rng.chance((100 - al.trust) / 330)) {
-        al.trust -= 14;
+      if (al && state.rng.chance((100 - al.trust) / 340)) {
+        al.trust -= 15;
         a.alliance = null;
         al.members = al.members.filter(id => id !== a.id);
-        log(`${a.name} betrays alliance ${al.id} and vanishes into the hills!`);
+        log(`${a.name} betrays alliance ${al.id} and disappears.`);
         return true;
       }
     }
-
     return false;
   }
 
@@ -281,11 +317,11 @@
     log(`${victim.name} dies (${reason}).`, 'death');
     if (killer) {
       killer.kills += 1;
+      killer.inventory.push(...victim.inventory.splice(0));
       log(`${killer.name} eliminated ${victim.name}.`);
       for (const ally of state.tributes.filter(t => t.alive && (t.teamId === victim.teamId || t.alliance === victim.alliance))) {
         if (ally.id !== killer.id) ally.revengeTargets.add(killer.id);
       }
-      killer.inventory.push(...victim.inventory.splice(0));
     }
     if (victim.alliance) {
       const a = state.alliances.get(victim.alliance);
@@ -294,13 +330,11 @@
   }
 
   function fight(a, b) {
-    const ba = biomeAt(a.x, a.y);
-    const bb = biomeAt(b.x, b.y);
-    const scoreA = a.combat + a.weaponPower * 0.45 + a.morale * 0.1 + BIOMES[ba].stealth + (a.revengeTargets.has(b.id) ? 8 : 0) + state.rng.int(-6, 6);
-    const scoreB = b.combat + b.weaponPower * 0.45 + b.morale * 0.1 + BIOMES[bb].stealth + (b.revengeTargets.has(a.id) ? 8 : 0) + state.rng.int(-6, 6);
-
-    const dmgToB = Math.max(4, Math.floor(scoreA * 0.28));
-    const dmgToA = Math.max(4, Math.floor(scoreB * 0.28));
+    const ba = biomeAt(a.x, a.y), bb = biomeAt(b.x, b.y);
+    const scoreA = a.strength * 4 + a.speed * 2 + a.stealth * BIOMES[ba].stealth * 1.2 + a.weaponPower * 0.6 + a.morale * 0.12 + (a.revengeTargets.has(b.id) ? 10 : 0) + state.rng.int(-5, 5);
+    const scoreB = b.strength * 4 + b.speed * 2 + b.stealth * BIOMES[bb].stealth * 1.2 + b.weaponPower * 0.6 + b.morale * 0.12 + (b.revengeTargets.has(a.id) ? 10 : 0) + state.rng.int(-5, 5);
+    const dmgToB = Math.max(4, Math.floor(scoreA * 0.18));
+    const dmgToA = Math.max(4, Math.floor(scoreB * 0.18));
 
     b.hp -= dmgToB;
     a.hp -= dmgToA;
@@ -315,17 +349,20 @@
     for (let i = 0; i < alive.length; i++) {
       for (let j = i + 1; j < alive.length; j++) {
         const a = alive[i], b = alive[j];
-        if (!a.alive || !b.alive) continue;
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (d > 2.3) continue;
+        if (!a.alive || !b.alive || dist(a, b) > 2.3) continue;
 
-        const cooperative = relationshipEvent(a, b);
-        if (cooperative) continue;
+        if (relationshipEvent(a, b)) continue;
 
-        const aggression = 0.38 + (a.revengeTargets.has(b.id) || b.revengeTargets.has(a.id) ? 0.28 : 0) + ((100 - a.morale) / 500) + ((100 - b.morale) / 500);
-        if (state.rng.chance(aggression)) fight(a, b);
-        else if (state.rng.chance(0.24)) {
-          log(`${a.name} and ${b.name} exchange tense words, then separate.`);
+        const aAdvantage = a.threat - b.threat;
+        const bAdvantage = -aAdvantage;
+        const aWantsFight = a.revengeTargets.has(b.id) || aAdvantage > 8 || (a.hunger > 35 && a.thirst > 35 && a.hp > 40);
+        const bWantsFight = b.revengeTargets.has(a.id) || bAdvantage > 8 || (b.hunger > 35 && b.thirst > 35 && b.hp > 40);
+        const diplomacy = (a.smarts + b.smarts) / 30;
+
+        if ((aWantsFight || bWantsFight) && state.rng.chance(0.45 - diplomacy * 0.12 + (aWantsFight && bWantsFight ? 0.15 : 0))) {
+          fight(a, b);
+        } else {
+          log(`${a.name} and ${b.name} circle each other and disengage.`);
         }
       }
     }
@@ -339,30 +376,27 @@
       log('🌋 Death Mountain erupts! Lava bombs rain across volcanic zones.');
     }
 
-    if (state.volcano.erupting) {
-      state.volcano.turns--;
-      for (const t of aliveTributes()) {
-        const d = Math.hypot(t.x - state.volcano.x, t.y - state.volcano.y);
-        if (d < 12 && state.rng.chance(0.35)) {
-          const hit = state.rng.int(8, 26);
-          t.hp -= hit;
-          t.morale -= 10;
-          log(`${t.name} is scorched by volcanic ash (${hit} dmg).`);
-          if (t.hp <= 0) killTribute(t, null, 'consumed by eruption');
-        }
+    if (!state.volcano.erupting) return;
+    state.volcano.turns--;
+    for (const t of aliveTributes()) {
+      const d = Math.hypot(t.x - state.volcano.x, t.y - state.volcano.y);
+      if (d < 12 && state.rng.chance(0.35)) {
+        const hit = state.rng.int(8, 26);
+        t.hp -= hit;
+        t.morale -= 10;
+        log(`${t.name} is scorched by volcanic ash (${hit} dmg).`);
+        if (t.hp <= 0) killTribute(t, null, 'consumed by eruption');
       }
-      if (state.volcano.turns <= 0) {
-        state.volcano.erupting = false;
-        state.volcano.heat *= 0.5;
-        log('The eruption fades, leaving smoke over the arena.');
-      }
+    }
+    if (state.volcano.turns <= 0) {
+      state.volcano.erupting = false;
+      state.volcano.heat *= 0.5;
+      log('The eruption fades, leaving smoke over the arena.');
     }
   }
 
   function cleanupDeaths() {
-    for (const t of state.tributes) {
-      if (t.alive && t.hp <= 0) killTribute(t, null, 'succumbed to injuries');
-    }
+    for (const t of state.tributes) if (t.alive && t.hp <= 0) killTribute(t, null, 'succumbed to injuries');
   }
 
   function runTick() {
@@ -371,7 +405,7 @@
 
     for (const t of aliveTributes()) {
       moveTribute(t);
-      consumeResources(t);
+      consumeAndEat(t);
       randomEvent(t);
     }
     resolveEncounters();
@@ -382,8 +416,7 @@
     const alive = aliveTributes();
     if (alive.length <= 1) {
       state.running = false;
-      if (alive[0]) log(`🏆 ${alive[0].name} wins the Wilds Hunger Games!`);
-      else log('No one survived the wilds.');
+      log(alive[0] ? `🏆 ${alive[0].name} wins the Wilds Hunger Games!` : 'No one survived the wilds.');
     }
   }
 
@@ -394,7 +427,6 @@
         context.fillRect(x * TILE * scale, y * TILE * scale, TILE * scale, TILE * scale);
       }
     }
-
     context.fillStyle = '#f2b35d';
     context.beginPath();
     context.arc(state.volcano.x * TILE * scale + 5 * scale, state.volcano.y * TILE * scale + 5 * scale, 8 * scale, 0, Math.PI * 2);
@@ -420,17 +452,13 @@
 
   function drawUI() {
     const alive = aliveTributes();
-    els.status.innerHTML = `
-      Day <b>${state.day}</b> | Tick <b>${state.time}</b><br>
-      Alive: <b>${alive.length}/${state.tributes.length}</b><br>
-      Volcano: <span class="tag ${state.volcano.erupting ? 'bad' : 'good'}">${state.volcano.erupting ? 'ERUPTING' : 'Stable'}</span>
-    `;
+    els.status.innerHTML = `Day <b>${state.day}</b> | Tick <b>${state.time}</b><br>Alive: <b>${alive.length}/${state.tributes.length}</b><br>Volcano: <span class="tag ${state.volcano.erupting ? 'bad' : 'good'}">${state.volcano.erupting ? 'ERUPTING' : 'Stable'}</span>`;
 
     els.tributesList.innerHTML = '';
     for (const t of state.tributes) {
       const li = document.createElement('li');
       li.className = t.alive ? '' : 'dead';
-      li.textContent = `${t.name} (T${t.teamId}) HP:${Math.max(0, Math.round(t.hp))} H:${Math.round(t.hunger)} W:${Math.round(t.thirst)} K:${t.kills}`;
+      li.textContent = `${t.name} HP:${Math.max(0, Math.round(t.hp))} H:${Math.round(t.hunger)} W:${Math.round(t.thirst)} SPD:${t.speed} INT:${t.smarts} STR:${t.strength} STL:${t.stealth} ${t.lastAction}`;
       li.onclick = () => { state.selectedId = t.id; draw(); };
       els.tributesList.appendChild(li);
     }
@@ -451,53 +479,32 @@
 
     const selected = state.tributes.find(t => t.id === state.selectedId);
     if (selected) {
-      els.inv.innerHTML = `
-        <b>${selected.name}</b><br>
-        Team: ${state.teams.get(selected.teamId)?.name ?? selected.teamId}<br>
-        Alliance: ${selected.alliance ?? 'none'}<br>
-        Revenge: ${[...selected.revengeTargets].map(id => state.tributes[id]?.name).filter(Boolean).join(', ') || 'none'}<br>
-        Inventory: ${selected.inventory.map(i => i.name).join(', ') || 'empty'}
-      `;
+      els.inv.innerHTML = `<b>${selected.name}</b><br>Team: ${state.teams.get(selected.teamId)?.name ?? selected.teamId}<br>Alliance: ${selected.alliance ?? 'none'}<br>Stats: SPD ${selected.speed} | INT ${selected.smarts} | STR ${selected.strength} | STL ${selected.stealth}<br>Revenge: ${[...selected.revengeTargets].map(id => state.tributes[id]?.name).filter(Boolean).join(', ') || 'none'}<br>Inventory: ${selected.inventory.map(i => i.name).join(', ') || 'empty'}`;
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, MAIN_W, MAIN_H);
     miniCtx.clearRect(0, 0, els.mini.width, els.mini.height);
-
-    drawMap(ctx, 1);
-    drawTributes(ctx, 1);
-    drawMap(miniCtx, 0.25);
-    drawTributes(miniCtx, 0.25);
-
+    drawMap(ctx, 1); drawTributes(ctx, 1);
+    drawMap(miniCtx, 0.25); drawTributes(miniCtx, 0.25);
     drawUI();
   }
 
-  let interval = null;
   function runLoop() {
+    let interval = null;
     clearInterval(interval);
     interval = setInterval(() => {
       if (!state.running) return;
-      for (let i = 0; i < state.speed; i++) {
-        if (!state.running) break;
-        runTick();
-      }
+      for (let i = 0; i < state.speed && state.running; i++) runTick();
     }, 500);
   }
 
   function reset() {
-    state.time = 0;
-    state.day = 1;
-    state.running = false;
-    state.selectedId = null;
-    state.volcano.heat = 0;
-    state.volcano.erupting = false;
-    state.volcano.turns = 0;
-    els.eventLog.innerHTML = '';
-    els.deathLog.innerHTML = '';
-    generateMap();
-    createCast();
-    draw();
+    state.time = 0; state.day = 1; state.running = false; state.selectedId = null;
+    state.volcano.heat = 0; state.volcano.erupting = false; state.volcano.turns = 0;
+    els.eventLog.innerHTML = ''; els.deathLog.innerHTML = '';
+    generateMap(); createCast(); draw();
   }
 
   els.startBtn.onclick = () => { state.running = true; };
