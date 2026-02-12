@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wilds Hunger Games Simulator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Wilds Hunger Games Simulator</h1>
+      <div class="controls">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="stepBtn">Step</button>
+        <button id="resetBtn">Reset</button>
+        <label>
+          Speed
+          <input id="speedInput" type="range" min="1" max="8" value="3" />
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="map-section panel">
+        <div class="panel-title">Great Plateau Arena</div>
+        <canvas id="mainMap" width="960" height="600"></canvas>
+      </section>
+
+      <aside class="right-col">
+        <section class="panel minimap-panel">
+          <div class="panel-title">Minimap</div>
+          <canvas id="miniMap" width="240" height="160"></canvas>
+        </section>
+
+        <section class="panel stats-panel">
+          <div class="panel-title">Simulation Status</div>
+          <div id="status"></div>
+        </section>
+
+        <section class="panel tribute-panel">
+          <div class="panel-title">Tributes</div>
+          <ul id="tributesList"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <section class="bottom-layout">
+      <section class="panel log-panel">
+        <div class="panel-title">Event Log</div>
+        <ol id="eventLog"></ol>
+      </section>
+      <section class="panel death-panel">
+        <div class="panel-title">Death Log</div>
+        <ol id="deathLog"></ol>
+      </section>
+      <section class="panel alliance-panel">
+        <div class="panel-title">Teams & Alliances</div>
+        <div id="alliancesView"></div>
+      </section>
+      <section class="panel inv-panel">
+        <div class="panel-title">Focused Inventory</div>
+        <div id="inventoryView">Click a tribute to inspect inventory.</div>
+      </section>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
